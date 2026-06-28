@@ -1,0 +1,5 @@
+,Accuracy,Time/Image (ms)
+Custom CNN,76.69%,19.3
+MobileNetV2,96.26%,65.86
+EfficientNetB0,32.92%,49.26
+YOLOv8 Classify,99.11%,12.62
