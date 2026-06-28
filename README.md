@@ -43,5 +43,5 @@ If you would like to run this application locally on your own machine, follow th
 
 **1. Clone the repository**
 ```bash
-git clone [https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME.git](https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME.git)
+git clone [https://github.com/dcvhere/banana-ripeness-classifier.git](https://github.com/scvhere/banana-ripeness-classifier.git)
 cd YOUR_REPOSITORY_NAME
