@@ -10,7 +10,7 @@ An end-to-end computer vision application designed to automatically grade the ri
 
 *(Replace the placeholder links below with actual screenshots of your app running. You can upload images to your repository and link them here).*
 
-![Classification Preview](link_to_your_classification_screenshot.png)
+![Classification Preview](l[ink_to_your_classification_screenshot.png](https://github.com/dcvhere/banana-ripeness-classifier/blob/main/images/Screenshot%20From%202026-06-28%2022-03-18.png))
 *Real-time ripeness classification using deep learning.*
 
 ![Detection Preview](link_to_your_detection_screenshot.png)
