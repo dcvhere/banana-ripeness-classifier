@@ -2,7 +2,7 @@
 
 An end-to-end computer vision application designed to automatically grade the ripeness of bananas and count inventory in real-time. 
 
-🚀 **[Experience the Live Web App on Hugging Face](https://huggingface.co/spaces/dcvhere/banana-ripeness-classifier)**
+🚀 **[Experience the Live Web App on Hugging Face] (https://banana-ripeness-classifier-dcvhere.streamlit.app/)](https://banana-ripeness-classifier-dcvhere.streamlit.app/)**
 
 ---
 
