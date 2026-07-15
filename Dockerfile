@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . .
 
 # 4. Install system tools and Python dependencies
-RUN apt-get update && apt-get install -y libglib2.0-0 libsm6 libxext6 libxrender-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev && rm -rf /var/lib/apt/lists/*
 RUN pip install --upgrade pip
 
 # FORCED INSTALL: This ensures ultralytics and its dependencies are explicitly installed
