@@ -1,13 +1,29 @@
 import os
-# The Streamlit Cloud Hack: Silently uninstall the conflicting GUI version of OpenCV
+
 os.system("pip uninstall -y opencv-python")
 
-# Your existing environment config
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3" 
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+import torch
+torch.set_num_threads(1)
+
+
+import cv2
+cv2.setNumThreads(1)
+
+
+import tensorflow as tf
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 
 import streamlit as st
 from PIL import Image
+import gc
 from utils import get_classification_model, get_detection_model, predict_classification, detect_and_count
+
 
 st.set_page_config(page_title="Banana Quality Assessment", layout="wide")
 st.title("🍌 Advanced Banana Ripeness & Quality Detection")
@@ -80,5 +96,8 @@ if image is not None:
             st.subheader("Detection View")
             st.metric(label="Total Bananas Detected", value=count)
             st.image(annotated_image, use_column_width=True)
+            
+            # Force memory cleanup to prevent 1GB RAM OOM (Out of Memory) crashes
+            gc.collect()
 else:
     st.info("👈 Please upload an image or use the camera to begin.")
