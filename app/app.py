@@ -5,105 +5,139 @@ import tensorflow as tf
 from ultralytics import YOLO
 import os
 
-st.set_page_config(page_title="Banana Ripeness Classifier", layout="wide")
+st.set_page_config(page_title="Advanced Banana Quality Assessment", layout="wide")
 
-# Map your exact GitHub filenames to the models
+# 1. Update these to your exact 6 Roboflow category labels
+CLASS_NAMES = ["Label_1", "Label_2", "Label_3", "Label_4", "Label_5", "Label_6"]
+
+# 2. Map exact paths to the models based on the project structure
 MODEL_PATHS = {
-    "YOLO Detection": "models/yolo_detect_best.pt",
+    "YOLO Detection (Counting)": "models/yolo_detect_best.pt",
+    "YOLOv8 Classification": "models/yolo_cls_best.pt",
     "Custom CNN": "models/custom_cnn_model.keras",
     "EfficientNetB0": "models/efficientnetb0_model.keras",
-    "MobileNetV2": "models/mobilenetv2_model.keras"
+    "MobileNetV2": "models/mobilenetv2_model.keras",
+    "ResNet50": "models/resnet50_model.keras"
 }
 
-# Safely load YOLO model
+# Safely Load YOLO Detection Model
 @st.cache_resource
-def load_yolo():
-    path = MODEL_PATHS["YOLO Detection"]
+def load_detector():
+    path = MODEL_PATHS["YOLO Detection (Counting)"]
     if os.path.exists(path):
         try:
             return YOLO(path)
         except Exception as e:
-            st.error(f"Error loading YOLO: {e}")
-    else:
-        st.warning(f"YOLO file not found at {path}")
+            st.error(f"Error loading detector: {e}")
     return None
 
-# Safely load the selected CNN model
+# Safely Load Selected Classification Model
 @st.cache_resource
-def load_cnn(model_name):
+def load_classifier(model_name):
     path = MODEL_PATHS.get(model_name)
-    if path and os.path.exists(path):
-        try:
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        if "yolo" in path.lower():
+            return YOLO(path)
+        else:
             return tf.keras.models.load_model(path)
-        except Exception as e:
-            st.error(f"Error loading {model_name}: {e}")
-    else:
-        st.warning(f"CNN file not found at {path}")
-    return None
+    except Exception as e:
+        st.error(f"Error loading {model_name}: {e}")
+        return None
 
 # UI Setup
-st.title("🍌 Banana Ripeness & Quality Classifier")
-st.markdown("Upload an image of a banana to analyze its ripeness level and detect defects.")
+st.title("🍌 Banana Ripeness, Quality Detection, and Counting")
+st.markdown("Upload an image or use your camera to classify ripeness and count the bananas present.")
 
-# Sidebar for selecting all available models
+# Sidebar Configuration
 st.sidebar.header("Control Panel")
-selected_cnn_name = st.sidebar.selectbox(
+selected_classifier = st.sidebar.selectbox(
     "Select Classification Model:",
-    ["Custom CNN", "EfficientNetB0", "MobileNetV2"]
+    ["Custom CNN", "EfficientNetB0", "MobileNetV2", "ResNet50", "YOLOv8 Classification"]
 )
 
-# Initialize the models
-yolo_model = load_yolo()
-cnn_model = load_cnn(selected_cnn_name)
+input_method = st.sidebar.radio("Choose Input Method:", ["File Upload", "Camera Capture"])
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png", "webp"])
+# Initialize Models
+detector = load_detector()
+classifier = load_classifier(selected_classifier)
 
-if uploaded_file is not None:
+# Input Handling
+image_file = None
+if input_method == "File Upload":
+    image_file = st.sidebar.file_uploader("Upload an image (JPG/PNG)", type=["jpg", "jpeg", "png", "webp"])
+else:
+    image_file = st.sidebar.camera_input("Take a picture")
+
+# Main Execution Flow
+if image_file is not None:
     try:
-        # CRASH-PROOF OPENCV IMAGE PROCESSING
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+        # CRASH-PROOF OPENCV DECODING
+        file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
         img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         
         if img_bgr is None:
-            raise ValueError("OpenCV failed to decode image. File may be corrupted.")
+            raise ValueError("OpenCV failed to decode the image. File may be corrupted.")
             
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image(img_rgb, caption="Uploaded Image", use_container_width=True)
+        # Step 1: Preview Image
+        st.image(img_rgb, caption="Input Image Ready for Analysis", use_container_width=False, width=400)
         
-        with col2:
-            if st.button("Analyze Banana"):
-                with st.spinner("Processing image..."):
+        # Step 2: Explicit Action Button
+        if st.button("Analyze Image", type="primary", use_container_width=True):
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("1. Object Detection & Counting")
+                if detector:
+                    with st.spinner("Detecting and counting bananas..."):
+                        # YOLO Inference
+                        det_results = detector(img_rgb, verbose=False)
+                        boxes = det_results[0].boxes
+                        banana_count = len(boxes)
+                        annotated_frame = det_results[0].plot()
+                        
+                        st.metric(label="Total Bananas Detected", value=banana_count)
+                        st.image(annotated_frame, caption="YOLOv8 Bounding Boxes", use_container_width=True)
+                else:
+                    st.error("YOLO detection model is missing from the models directory.")
                     
-                    # YOLO Detection Phase
-                    if yolo_model is not None:
-                        try:
-                            # Run inference
-                            results = yolo_model(img_rgb, verbose=False)
-                            # Render bounding boxes
-                            annotated_frame = results[0].plot()
-                            st.subheader("Detection Results")
-                            st.image(annotated_frame, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Detection error: {e}")
-                    
-                    # CNN Classification Phase
-                    if cnn_model is not None:
-                        try:
-                            # Resize to match standard CNN input
-                            resized_img = cv2.resize(img_rgb, (224, 224))
+            with col2:
+                st.subheader(f"2. Ripeness Classification ({selected_classifier})")
+                if classifier:
+                    with st.spinner("Classifying ripeness quality..."):
+                        if "YOLO" in selected_classifier:
+                            cls_results = classifier(img_rgb, verbose=False)
+                            top_class = cls_results[0].names[cls_results[0].probs.top1]
+                            confidence = cls_results[0].probs.top1conf.item() * 100
+                            
+                            st.success(f"**Predicted Quality:** {top_class}")
+                            st.info(f"**Confidence Score:** {confidence:.2f}%")
+                        else:
+                            # Standard CNN / Transfer Learning Pipeline
+                            # Resized to 416x416 to match the project's Roboflow dataset preprocessing
+                            resized_img = cv2.resize(img_rgb, (416, 416))
                             normalized_img = resized_img / 255.0
                             input_tensor = np.expand_dims(normalized_img, axis=0)
                             
-                            predictions = cnn_model.predict(input_tensor, verbose=0)
+                            predictions = classifier.predict(input_tensor, verbose=0)[0]
+                            class_index = np.argmax(predictions)
+                            confidence = predictions[class_index] * 100
                             
-                            st.markdown("---")
-                            st.subheader(f"Classification ({selected_cnn_name})")
-                            st.success(f"Raw Output Score: {float(predictions[0][0]):.4f}")
-                        except Exception as e:
-                            st.error(f"Classification error: {e}")
-                            
-    except Exception as general_error:
-        st.error(f"Critical error: {general_error}")
+                            try:
+                                predicted_label = CLASS_NAMES[class_index]
+                            except IndexError:
+                                predicted_label = f"Class {class_index}"
+                                
+                            st.success(f"**Predicted Quality:** {predicted_label}")
+                            st.info(f"**Confidence Score:** {confidence:.2f}%")
+                else:
+                    st.error(f"{selected_classifier} model is missing from the models directory.")
+                    
+    except Exception as e:
+        st.error(f"Critical error processing image: {e}")
+else:
+    st.info("👈 Please select an input method and provide an image to begin.")
