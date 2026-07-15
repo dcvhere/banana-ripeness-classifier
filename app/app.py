@@ -1,121 +1,103 @@
+import streamlit as st
+import cv2
+import numpy as np
+import tensorflow as tf
+from ultralytics import YOLO
 import os
 
-# 1. The Streamlit Cloud Hack: Silently uninstall the conflicting GUI version of OpenCV
-os.system("pip uninstall -y opencv-python")
+# Set page layout configuration
+st.set_page_config(page_title="Banana Ripeness Classifier", layout="centered")
 
-# 2. Blind TensorFlow and PyTorch to the existence of GPUs entirely
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress TF warnings about missing CUDA
-
-# 3. Prevent OpenMP thread-clashing
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-# 4. Strict CPU Thread Throttling for PyTorch
-import torch
-torch.set_num_threads(1)
-
-# 5. Strict CPU Thread Throttling for OpenCV
-import cv2
-cv2.setNumThreads(1)
-
-# 6. Strict CPU Thread Throttling for TensorFlow
-import tensorflow as tf
-tf.config.threading.set_intra_op_parallelism_threads(1)
-tf.config.threading.set_inter_op_parallelism_threads(1)
-
-import streamlit as st
-from PIL import Image
-import gc
-from utils import get_classification_model, get_detection_model, predict_classification, detect_and_count
-
-
-st.set_page_config(page_title="Banana Quality Assessment", layout="wide")
-st.title("🍌 Advanced Banana Ripeness & Quality Detection")
-st.markdown("""
-Welcome to the automated banana grading system. 
-**User Guidance:** For best results, use clear lighting and ensure the bananas are fully visible in the frame.
-""")
-
-# Cache the models individually based on user selection
+# Cache model loading to prevent memory leaks on Cloud Run
 @st.cache_resource
-def load_classifier(name):
-    return get_classification_model(name)
-
-@st.cache_resource
-def load_detector():
-    return get_detection_model()
-
-# Sidebar Controls
-st.sidebar.header("Control Panel")
-selected_model_name = st.sidebar.selectbox(
-    "Select Classification Model:",
-    ["Custom CNN", "MobileNetV2", "EfficientNetB0", "YOLOv8 Classify"]
-)
-
-input_method = st.sidebar.radio("Select Image Input Method:", ["File Upload", "Camera Capture"])
-
-# Pre-load the required models for this specific run
-try:
-    classifier_model = load_classifier(selected_model_name)
-    detector_model = load_detector()
-except Exception as e:
-    st.error(f"Error loading models. Please check your 'models/' directory. Details: {e}")
-    st.stop()
-
-# Handle Image Input
-image = None
-if input_method == "File Upload":
-    uploaded_file = st.sidebar.file_uploader("Upload an image (JPG/PNG)", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file).convert('RGB')
-elif input_method == "Camera Capture":
-    camera_file = st.sidebar.camera_input("Take a picture")
-    if camera_file is not None:
-        image = Image.open(camera_file).convert('RGB')
-
-# Display Interface and Run Inference
-if image is not None:
-    col1, col2 = st.columns(2)
+def load_models():
+    models = {}
     
-    with col1:
-        st.subheader("Input Image")
-        st.image(image, use_column_width=True)
+    # Paths to your weight files - update names if they differ
+    yolo_path = "models/best.pt"
+    cnn_path = "models/banana_model.keras"
+    
+    # Safe loading for YOLO
+    if os.path.exists(yolo_path):
+        try:
+            models['yolo'] = YOLO(yolo_path)
+        except Exception as e:
+            st.error(f"Error loading YOLO model: {e}")
+    else:
+        st.warning(f"YOLO model file not found at {yolo_path}. Object detection will be disabled.")
+        models['yolo'] = None
+
+    # Safe loading for TensorFlow CNN
+    if os.path.exists(cnn_path):
+        try:
+            models['cnn'] = tf.keras.models.load_model(cnn_path)
+        except Exception as e:
+            st.error(f"Error loading CNN model: {e}")
+    else:
+        st.warning(f"CNN model file not found at {cnn_path}. Classification will be disabled.")
+        models['cnn'] = None
         
-    with col2:
-        st.subheader("Analysis Results")
+    return models
+
+# Initialize models safely
+models = load_models()
+
+st.title("🍌 Banana Ripeness & Quality Classifier")
+st.write("Upload an image of a banana to analyze its ripeness level and detect defects.")
+
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png", "webp"])
+
+if uploaded_file is not None:
+    try:
+        # --- CRASH-PROOF OPENCV IMAGE PROCESSING ---
+        # 1. Read file bytes directly from Streamlit memory buffer
+        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         
-        with st.spinner("Analyzing Ripeness..."):
-            # Classification
-            pred_class, conf = predict_classification(image, classifier_model, selected_model_name)
+        # 2. Decode bytes into a standard BGR image array using OpenCV
+        img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        
+        if img_bgr is None:
+            raise ValueError("OpenCV failed to decode image. File may be corrupted.")
             
-            st.markdown(f"**Selected Model:** {selected_model_name}")
-            st.success(f"**Predicted Quality:** {pred_class}")
-            st.info(f"**Confidence Score:** {conf*100:.2f}%")
+        # 3. Convert to RGB layout for display and model inference
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         
-        with st.spinner("Detecting and Counting..."):
-            try:
-                # EMERGENCY RAM SAVER: Drastically shrink the image before YOLO processing
-                # This cuts memory usage by up to 75%
-                small_img = image.copy()
-                small_img.thumbnail((320, 320)) 
+        # Display the uploaded image cleanly
+        st.image(img_rgb, caption="Uploaded Image", use_container_width=True)
+        
+        # Execution button
+        if st.button("Analyze Banana"):
+            with st.spinner("Processing image through pipeline..."):
                 
-                # Run the detection on the smaller image
-                annotated_image, count = detect_and_count(small_img, detector_model)
+                # --- PHASE 1: Object Detection (YOLOv8) ---
+                if models['yolo'] is not None:
+                    try:
+                        # OpenCV formats fit seamlessly into YOLO
+                        yolo_results = models['yolo'](img_rgb, verbose=False)
+                        # Process YOLO outputs here if needed (e.g., drawing bounding boxes)
+                    except Exception as e:
+                        st.error(f"Object detection phase encountered an error: {e}")
                 
-                st.markdown("---")
-                st.subheader("Detection View")
-                st.metric(label="Total Bananas Detected", value=count)
-                st.image(annotated_image, use_column_width=True)
-                
-            except Exception as e:
-                # THE FAILSAFE: If RAM still spikes, fail gracefully so the app stays online!
-                st.markdown("---")
-                st.warning("⚠️ **Live Demo Mode:** High server memory usage detected. Object detection was safely bypassed to keep the application stable.")
-                st.metric(label="Total Bananas Detected", value="Pending...")
-                st.image(image, use_column_width=True, caption="Original Image (Detection Bypassed)")
-                
-            finally:
-                # Force server garbage collection no matter what happens
-                gc.collect()
-else:
-    st.info("👈 Please upload an image or use the camera to begin.")
+                # --- PHASE 2: Classification (CNN) ---
+                if models['cnn'] is not None:
+                    try:
+                        # OpenCV allows ultra-safe image resizing to match your CNN input shape
+                        # Update (224, 224) to your model's required input resolution
+                        resized_img = cv2.resize(img_rgb, (224, 224))
+                        
+                        # Normalize and add batch dimension
+                        normalized_img = resized_img / 255.0
+                        input_tensor = np.expand_dims(normalized_img, axis=0)
+                        
+                        # Inference execution
+                        predictions = models['cnn'].predict(input_tensor, verbose=0)
+                        
+                        # Placeholder: Adjust logic based on your specific output classes
+                        score = float(predictions[0][0]) if len(predictions[0]) == 1 else np.argmax(predictions[0])
+                        st.success(f"Analysis complete! Classification Output Score: {score:.4f}")
+                        
+                    except Exception as e:
+                        st.error(f"Classification phase encountered an error: {e}")
+                        
+    except Exception as general_error:
+        st.error(f"Critical error handling the uploaded file: {general_error}")
