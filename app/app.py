@@ -1,4 +1,8 @@
 import os
+# The Streamlit Cloud Hack: Silently uninstall the conflicting GUI version of OpenCV
+os.system("pip uninstall -y opencv-python")
+
+# Your existing environment config
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import streamlit as st
